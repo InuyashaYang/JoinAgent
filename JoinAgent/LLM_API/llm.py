@@ -62,7 +62,7 @@ class MultiLLM:
             raise ValueError("API key not found. Please set the MULTI_LLM_API environment variable.")
 
     def ask(self, prompt,temperature=0.7):
-        url = "https://api.openai-next.com/v1/chat/completions"
+        url = "http://34.29.164.249:3003/v1/chat/completions"
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"
@@ -75,7 +75,6 @@ class MultiLLM:
             ],
             "temperature":temperature
         }
-        
         return self._make_request(url, headers, data, 'ask')
 
     def look(self, image_path, prompt="What's in this image?"):
@@ -116,7 +115,7 @@ class MultiLLM:
             return base64.b64encode(image_file.read()).decode('utf-8')
 
     def embed_text(self, input_text):
-        url = "https://api.openai-next.com/v1/embeddings"
+        url = "http://34.29.164.249:3003/v1/embeddings"
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",

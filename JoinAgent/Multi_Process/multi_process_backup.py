@@ -19,18 +19,7 @@ class MultiProcessor:
         self.time_limit = time_limit
         self.checkpoint_dir = "checkpoint"
         self.temperature = temperature
-        self.checkpoint_path_0 = os.path.join(self.checkpoint_dir, 'checkpoint_0.json')
-        self.checkpoint_path_1 = os.path.join(self.checkpoint_dir, 'checkpoint_1.json')
-        # 检查两个文件是否都存在
-        if os.path.exists(self.checkpoint_path_0) and os.path.exists(self.checkpoint_path_1):
-            # 获取文件大小
-            size_0 = os.path.getsize(self.checkpoint_path_0)
-            size_1 = os.path.getsize(self.checkpoint_path_1)
-            # 比较文件大小并设置 choose_checkpoint
-            self.choose_checkpoint = size_1 >= size_0
-        else:
-            # 如果有文件不存在，默认设置为 False
-            self.choose_checkpoint = False
+        self.checkpoint_path = os.path.join(self.checkpoint_dir, 'checkpoint.json')
         self.IsPromptList = IsPromptList  # 新添加的属性
 
     def generate_prompt(self, **kwargs):
@@ -118,24 +107,15 @@ class MultiProcessor:
         for k, v in results_copy.items():
             if v is not None:  # 只更新非空结果
                 existing_results[str(k)] = v
-        if self.choose_checkpoint:
-            checkpoint_path=self.checkpoint_path_0
-            self.choose_checkpoint=False
-        else:
-            checkpoint_path=self.checkpoint_path_1
-            self.choose_checkpoint=True
+
         # 保存更新后的结果
-        with open(checkpoint_path, 'w', encoding='utf-8') as f:
+        with open(self.checkpoint_path, 'w', encoding='utf-8') as f:
             json.dump(existing_results, f, ensure_ascii=False, indent=4)
-        print(f"Checkpoint updated and saved at {checkpoint_path}.")
+        print(f"Checkpoint updated and saved at {self.checkpoint_path}.")
 
     def load_checkpoint(self):
-        if self.choose_checkpoint:
-            checkpoint_path=self.checkpoint_path_1
-        else:
-            checkpoint_path=self.checkpoint_path_0
-        if os.path.exists(checkpoint_path):
-            with open(checkpoint_path, 'r', encoding='utf-8') as f:
+        if os.path.exists(self.checkpoint_path):
+            with open(self.checkpoint_path, 'r', encoding='utf-8') as f:
                 return json.load(f)
         return {}
 
