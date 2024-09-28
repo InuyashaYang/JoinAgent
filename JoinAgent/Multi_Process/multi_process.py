@@ -8,7 +8,8 @@ import os
 import random
 
 class MultiProcessor:
-    def __init__(self, llm, parse_method, data_template, prompt_template, correction_template, validator, time_limit=120, back_up_llm=None, temperature=0.7, IsPromptList=False):
+    def __init__(self, llm, parse_method, data_template, prompt_template, correction_template, 
+                 validator, time_limit=120, back_up_llm=None, temperature=0.7, IsPromptList=False, checkpoint_dir=None):
         self.llm = llm
         self.back_up_llm = back_up_llm
         self.parse_method = parse_method
@@ -17,30 +18,36 @@ class MultiProcessor:
         self.correction_template = correction_template
         self.validator = validator
         self.time_limit = time_limit
-        self.checkpoint_dir = "checkpoint"
+        self.checkpoint_dir = checkpoint_dir if checkpoint_dir else 'checkpoint'
         self.temperature = temperature
+        self.IsPromptList = IsPromptList
         self.checkpoint_path_0 = os.path.join(self.checkpoint_dir, 'checkpoint_0.json')
         self.checkpoint_path_1 = os.path.join(self.checkpoint_dir, 'checkpoint_1.json')
-        # 检查两个文件是否都存在
-        if os.path.exists(self.checkpoint_path_0) and os.path.exists(self.checkpoint_path_1):
-            # 获取文件大小
-            size_0 = os.path.getsize(self.checkpoint_path_0)
-            size_1 = os.path.getsize(self.checkpoint_path_1)
-            # 比较文件大小并设置 choose_checkpoint
-            self.choose_checkpoint = size_1 >= size_0
-        else:
-            # 如果有文件不存在，默认设置为 False
-            self.choose_checkpoint = False
-        self.IsPromptList = IsPromptList  # 新添加的属性
+        self.choose_checkpoint = self.initialize_checkpoint_choice()
+
+    def initialize_checkpoint_choice(self):
+        if not os.path.exists(self.checkpoint_dir):
+            os.makedirs(self.checkpoint_dir)
+        
+        if not os.path.exists(self.checkpoint_path_0):
+            with open(self.checkpoint_path_0, 'w') as f:
+                json.dump({}, f)
+        
+        if not os.path.exists(self.checkpoint_path_1):
+            with open(self.checkpoint_path_1, 'w') as f:
+                json.dump({}, f)
+        
+        size_0 = os.path.getsize(self.checkpoint_path_0)
+        size_1 = os.path.getsize(self.checkpoint_path_1)
+        return size_1 >= size_0
+
 
     def generate_prompt(self, **kwargs):
         kwargs['data_template'] = self.data_template
         if self.IsPromptList:
-            # 如果 IsPromptList 为 True，随机选择一个 prompt 模板
             selected_template = random.choice(self.prompt_template)
             prompt = selected_template.format(**kwargs)
         else:
-            # 如果 IsPromptList 为 False，使用单一的 prompt 模板
             prompt = self.prompt_template.format(**kwargs)
         return prompt
 
@@ -50,7 +57,7 @@ class MultiProcessor:
     def task_perform(self, llm, **kwargs):
         try:
             prompt = self.generate_prompt(**kwargs)
-            answer = llm.ask(prompt,self.temperature)
+            answer = llm.ask(prompt, self.temperature)
             structured_data = self.parse_method(answer)
             return structured_data
         except Exception as e:
@@ -91,11 +98,11 @@ class MultiProcessor:
                         use_backup = True
                         print(f"Switching to backup LLM to process task {index}")
 
-            return None  # 如果所有尝试都失败，返回 None
+            return None
 
         except Exception as final_error:
             print(f"Error occurred during process_task for index {index}: {str(final_error)}")
-            return None  # 返回 None 表示跳过这个任务
+            return None
 
     def map_answer_to_pos(self, answer_dict):
         pos_dict = {}
@@ -108,56 +115,53 @@ class MultiProcessor:
         if not os.path.exists(self.checkpoint_dir):
             os.makedirs(self.checkpoint_dir)
 
-        # 加载现有的检查点
         existing_results = self.load_checkpoint()
         
-        # 创建一个副本，用于迭代
         results_copy = results.copy()
         
-        # 更新现有结果，只添加或更新新的结果
         for k, v in results_copy.items():
-            if v is not None:  # 只更新非空结果
+            if v is not None:
                 existing_results[str(k)] = v
         if self.choose_checkpoint:
-            checkpoint_path=self.checkpoint_path_0
-            self.choose_checkpoint=False
+            checkpoint_path = self.checkpoint_path_0
+            self.choose_checkpoint = False
         else:
-            checkpoint_path=self.checkpoint_path_1
-            self.choose_checkpoint=True
-        # 保存更新后的结果
+            checkpoint_path = self.checkpoint_path_1
+            self.choose_checkpoint = True
+        
         with open(checkpoint_path, 'w', encoding='utf-8') as f:
             json.dump(existing_results, f, ensure_ascii=False, indent=4)
         print(f"Checkpoint updated and saved at {checkpoint_path}.")
 
     def load_checkpoint(self):
-        if self.choose_checkpoint:
-            checkpoint_path=self.checkpoint_path_1
-        else:
-            checkpoint_path=self.checkpoint_path_0
+        checkpoint_path = self.checkpoint_path_1 if self.choose_checkpoint else self.checkpoint_path_0
         if os.path.exists(checkpoint_path):
             with open(checkpoint_path, 'r', encoding='utf-8') as f:
                 return json.load(f)
-        return {}
+        else:
+            print(f"Warning: No checkpoint found at {checkpoint_path}. Starting from scratch.")
+            return {}
 
-    def multitask_perform(self, index_dict, num_threads, checkpoint=10, Active_Reload=False, Active_Transform=False):
+    def multitask_perform(self, index_dict, num_threads, checkpoint=10, Active_Reload=False, Active_Transform=False, checkpoint_dir=None):
+        if checkpoint_dir:
+            self.checkpoint_dir = checkpoint_dir
+            self.checkpoint_path_0 = os.path.join(self.checkpoint_dir, 'checkpoint_0.json')
+            self.checkpoint_path_1 = os.path.join(self.checkpoint_dir, 'checkpoint_1.json')
+            self.choose_checkpoint = self.initialize_checkpoint_choice()
+
         if Active_Reload:
             previous_results = self.load_checkpoint()
             
-            # 确保所有的键都是整数类型
-            results = {int(k): v for k, v in previous_results.items()}
-            index_dict = {int(k): v for k, v in index_dict.items()}
+            results = {k: v for k, v in previous_results.items()}
+            index_dict = {k: v for k, v in index_dict.items()}
             
-            # 计算已完成的任务
             completed_tasks = {k: v for k, v in results.items() if v is not None}
             
-            # 计算剩余的任务
             remaining_tasks = {k: v for k, v in index_dict.items() if k not in completed_tasks}
             
             print(f"原始数据数量: {len(index_dict)}")
             print(f"已完成任务数量: {len(completed_tasks)}")
             print(f"剩余待处理数据数量: {len(remaining_tasks)}")
-            
-            # 用剩余的任务更新 index_dict
         else:
             results = {}
             remaining_tasks = index_dict
@@ -222,5 +226,47 @@ class MultiProcessor:
 
         completed_tasks = sum(1 for r in results.values() if r is not None)
         print(f"Final results - Total tasks: {len(results)}, Completed tasks: {completed_tasks}")
+
+        return results
+    
+    def multitask_manage(self, index_dict, num_threads, checkpoint=10, Active_Reload=False, Active_Transform=False, checkpoint_dir=None, 
+                        threshold=None, max_multitask_retries=None, max_time=None):
+        start_time = time.time()
+        total_tasks = len(index_dict)
+        retry_count = 0
+        results = {}
+
+        while True:
+            # 检查时间限制
+            if max_time and (time.time() - start_time) >= max_time:
+                print("Reached maximum time limit.")
+                break
+
+            # 检查重试次数限制
+            if max_multitask_retries and retry_count >= max_multitask_retries:
+                print("Reached maximum retry limit.")
+                break
+
+            # 执行multitask_perform
+            if retry_count == 0:
+                # 首次执行，使用传入的Active_Reload
+                results = self.multitask_perform(index_dict, num_threads, checkpoint, Active_Reload, Active_Transform, checkpoint_dir)
+            else:
+                # 重试时，强制Active_Reload=True
+                results = self.multitask_perform(index_dict, num_threads, checkpoint, True, Active_Transform, checkpoint_dir)
+
+            # 计算完成任务的比例
+            completed_tasks = sum(1 for r in results.values() if r is not None)
+            completion_ratio = completed_tasks / total_tasks
+
+            print(f"Completed {completed_tasks}/{total_tasks} tasks. Completion ratio: {completion_ratio:.2f}")
+
+            # 检查是否达到阈值
+            if threshold is None or completion_ratio >= threshold:
+                print("Reached or exceeded completion threshold.")
+                break
+
+            retry_count += 1
+            print(f"Starting retry {retry_count}")
 
         return results
