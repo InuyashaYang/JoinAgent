@@ -236,7 +236,7 @@ class DeepSeekLLM:
         self.initialized = True
         return True
 
-    def ask(self, prompt: str) -> str:
+    def ask(self, prompt: str, temperature=0.7) -> str:
         if not self.initialized:
             raise ValueError("服务未初始化，请先调用 init_service 方法初始化服务。")
 
